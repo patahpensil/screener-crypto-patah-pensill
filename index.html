@@ -1821,6 +1821,15 @@ async function sendTelegramAlert(message){
   }catch(e){ console.error('Gagal kirim ke Telegram:', e); return false; }
 }
 
+// Dedupe khusus alert Deep Scan: pair+arah yang sama nggak di-notif ulang dalam jendela cooldown,
+// biar nggak spam Telegram tiap kali kamu pencet tombol scan berkali-kali.
+const LS_DEEPSCAN_ALERTED = "pp_deepscan_alerted";
+const DEEPSCAN_ALERT_COOLDOWN_MS = 30 * 60 * 1000; // 30 menit
+function loadDeepScanAlerted(){
+  try{ return JSON.parse(localStorage.getItem(LS_DEEPSCAN_ALERTED) || "{}"); }catch(e){ return {}; }
+}
+function saveDeepScanAlerted(obj){ localStorage.setItem(LS_DEEPSCAN_ALERTED, JSON.stringify(obj)); }
+
 // ===== ALARM: bunyi beep (Web Audio, nggak butuh file audio eksternal) + getar + banner kedip di layar =====
 let alarmAudioCtx = null;
 function playAlarmBeep(){
@@ -1848,7 +1857,7 @@ function flashAlarmBanner(msg){
   flashAlarmBanner._t = setTimeout(()=>{ el.classList.remove('show'); }, 7000);
 }
 
-function pushAlert(msg, symbol, isAlarm){
+function pushAlert(msg, symbol, isAlarm, telegramMsg){
   const log = loadAlertLog();
   log.unshift({ msg, symbol, ts: Date.now(), alarm: !!isAlarm });
   saveAlertLog(log);
@@ -1859,8 +1868,10 @@ function pushAlert(msg, symbol, isAlarm){
     if(navigator.vibrate) navigator.vibrate([250,120,250,120,500]);
     playAlarmBeep();
     flashAlarmBanner(`${symbol?symbol.replace('USDT','')+' — ':''}${msg}`);
-    const tgText = `🚨 <b>${symbol?escapeHtml(symbol.replace('USDT','')):'Alarm'}</b>\n${escapeHtml(msg)}`;
-    sendTelegramAlert(tgText);
+    if(telegramMsg !== false){ // telegramMsg=false eksplisit -> skip; string -> pakai format custom; undefined -> format default
+      const tgText = telegramMsg || `🚨 <b>${symbol?escapeHtml(symbol.replace('USDT','')):'Alarm'}</b>\n${escapeHtml(msg)}`;
+      sendTelegramAlert(tgText);
+    }
   }
   if(window.Notification && Notification.permission === "granted"){
     try{
@@ -2917,6 +2928,26 @@ async function runDeepScanTop20(){
     return;
   }
   statusEl.textContent = `✓ ${top20.length} dari ${candidates.length} pair lolos seleksi ketat (${SCAN_LABEL})`;
+
+  // ===== Notifikasi Telegram: cuma buat pair yang BARU lolos (atau udah lewat masa cooldown) =====
+  const alertedMap = loadDeepScanAlerted();
+  const nowTs = Date.now();
+  const freshHits = top20.filter(r=>{
+    const key = r.symbol+'_'+r.bias;
+    const last = alertedMap[key];
+    return !last || (nowTs-last) > DEEPSCAN_ALERT_COOLDOWN_MS;
+  });
+  if(freshHits.length > 0){
+    freshHits.forEach(r=>{ alertedMap[r.symbol+'_'+r.bias] = nowTs; });
+    saveDeepScanAlerted(alertedMap);
+    const listText = freshHits.map(r=>
+      `• <b>${escapeHtml(r.symbol.replace('USDT',''))}</b> ${r.bias==='long'?'LONG 📈':'SHORT 📉'} — Skor ${r.score}, RR 1:${r.rr.toFixed(2)}`
+    ).join('\n');
+    const tgMsg = `🎯 <b>Deep Scan — ${freshHits.length} pair baru lolos seleksi</b>\n${escapeHtml(SCAN_LABEL)}\n\n${listText}`;
+    const localMsg = `Deep Scan: ${freshHits.length} pair baru lolos seleksi ketat — ${freshHits.map(r=>r.symbol.replace('USDT','')).join(', ')}`;
+    pushAlert(localMsg, null, true, tgMsg);
+  }
+
   const wl = new Set(loadWatchlist());
   listEl.innerHTML = top20.map(r=>{
     const row = tickerData.find(x=>x.symbol===r.symbol);
