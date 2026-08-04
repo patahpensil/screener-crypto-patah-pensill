@@ -1239,6 +1239,21 @@
 
         <button class="btn" id="notifPermBtn" style="margin-top:10px; width:100%;">🔔 Izinkan Notifikasi Browser</button>
         <div class="notif-status" id="notifStatus"></div>
+
+        <div class="drawer-title" style="margin-top:20px;">📨 Notifikasi Telegram</div>
+        <div class="sop-note" style="margin-top:0; margin-bottom:12px;">Kirim alarm (🚨) ke Telegram kamu juga, biar tetap kedapetan walau app lagi nggak dibuka di HP. Token &amp; Chat ID cuma disimpan lokal di browser ini (localStorage) — <b>tidak pernah</b> ikut ke-push ke GitHub atau server manapun.</div>
+        <div class="settings-grid">
+          <div class="setting-field"><label>Bot Token</label><input type="password" id="tgToken" placeholder="123456789:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"></div>
+          <div class="setting-field"><label>Chat ID</label><input type="text" id="tgChatId" placeholder="Contoh: 8883444537"></div>
+        </div>
+        <label style="display:flex; align-items:center; gap:8px; margin:10px 0; font-size:12.5px; color:var(--text-2);">
+          <input type="checkbox" id="tgEnabled" style="width:16px; height:16px;"> Aktifkan kirim alarm ke Telegram
+        </label>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary" id="tgSaveBtn" style="flex:1;">💾 Simpan</button>
+          <button class="btn" id="tgTestBtn" style="flex:1;">📨 Kirim Test</button>
+        </div>
+        <div class="notif-status" id="tgStatus"></div>
       </div>
     </div>
   </div>
@@ -1782,6 +1797,30 @@ function loadAlertLog(){
 }
 function saveAlertLog(log){ localStorage.setItem(LS_ALERTLOG, JSON.stringify(log.slice(0,100))); }
 
+// ===== NOTIFIKASI TELEGRAM — token & chat id CUMA disimpan di localStorage browser,
+// nggak pernah ditulis ke file/kode, jadi aman walau repo GitHub-nya Public. =====
+const LS_TELEGRAM = "pp_telegram_config";
+function loadTelegramConfig(){
+  try{ return Object.assign({token:"", chatId:"", enabled:false}, JSON.parse(localStorage.getItem(LS_TELEGRAM) || "{}")); }
+  catch(e){ return {token:"", chatId:"", enabled:false}; }
+}
+function saveTelegramConfig(cfg){ localStorage.setItem(LS_TELEGRAM, JSON.stringify(cfg)); }
+
+async function sendTelegramAlert(message){
+  const cfg = loadTelegramConfig();
+  if(!cfg.enabled || !cfg.token || !cfg.chatId) return false;
+  try{
+    const res = await fetch(`https://api.telegram.org/bot${cfg.token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: cfg.chatId, text: message, parse_mode: 'HTML' })
+    });
+    const data = await res.json();
+    if(!data.ok) console.error('Telegram error:', data.description);
+    return data.ok;
+  }catch(e){ console.error('Gagal kirim ke Telegram:', e); return false; }
+}
+
 // ===== ALARM: bunyi beep (Web Audio, nggak butuh file audio eksternal) + getar + banner kedip di layar =====
 let alarmAudioCtx = null;
 function playAlarmBeep(){
@@ -1820,6 +1859,8 @@ function pushAlert(msg, symbol, isAlarm){
     if(navigator.vibrate) navigator.vibrate([250,120,250,120,500]);
     playAlarmBeep();
     flashAlarmBanner(`${symbol?symbol.replace('USDT','')+' — ':''}${msg}`);
+    const tgText = `🚨 <b>${symbol?escapeHtml(symbol.replace('USDT','')):'Alarm'}</b>\n${escapeHtml(msg)}`;
+    sendTelegramAlert(tgText);
   }
   if(window.Notification && Notification.permission === "granted"){
     try{
@@ -3553,6 +3594,39 @@ document.getElementById('notifPermBtn').addEventListener('click', ()=>{
   if(!window.Notification){ refreshNotifStatus(); return; }
   Notification.requestPermission().then(()=>refreshNotifStatus());
 });
+
+// ===== Wiring UI Notifikasi Telegram =====
+function refreshTelegramUI(){
+  const cfg = loadTelegramConfig();
+  document.getElementById('tgToken').value = cfg.token;
+  document.getElementById('tgChatId').value = cfg.chatId;
+  document.getElementById('tgEnabled').checked = cfg.enabled;
+  const el = document.getElementById('tgStatus');
+  if(cfg.enabled && cfg.token && cfg.chatId){ el.textContent = "✓ Notifikasi Telegram aktif."; el.className = "notif-status granted"; }
+  else{ el.textContent = "Belum aktif — isi Token, Chat ID, lalu centang & simpan."; el.className = "notif-status"; }
+}
+document.getElementById('tgSaveBtn').addEventListener('click', ()=>{
+  const cfg = {
+    token: document.getElementById('tgToken').value.trim(),
+    chatId: document.getElementById('tgChatId').value.trim(),
+    enabled: document.getElementById('tgEnabled').checked,
+  };
+  saveTelegramConfig(cfg);
+  refreshTelegramUI();
+  setStatus("✓ Pengaturan Telegram disimpan", "ok");
+});
+document.getElementById('tgTestBtn').addEventListener('click', async ()=>{
+  const cfg = {
+    token: document.getElementById('tgToken').value.trim(),
+    chatId: document.getElementById('tgChatId').value.trim(),
+    enabled: true, // paksa aktif sebentar khusus buat kirim test, walau checkbox belum dicentang/disimpan
+  };
+  if(!cfg.token || !cfg.chatId){ setStatus("Isi Token & Chat ID dulu sebelum test.", "err"); return; }
+  saveTelegramConfig(Object.assign({}, cfg, {enabled: document.getElementById('tgEnabled').checked}));
+  const ok = await sendTelegramAlert('✅ Test notifikasi dari Patah Pensill Screener berhasil!');
+  setStatus(ok ? "✓ Pesan test terkirim, cek Telegram kamu" : "✕ Gagal kirim — cek lagi Token & Chat ID", ok ? "ok" : "err");
+});
+refreshTelegramUI();
 
 /* =====================================================================
    06-router-detail-setup.js
