@@ -1,0 +1,32 @@
+{
+  "name": "Patah Pensill Futures Screener",
+  "short_name": "PP Screener",
+  "description": "Screener & analisa futures Binance real-time — Scanner, Analysis, Validation, Decision Engine, Trading, dan Review dalam satu aplikasi.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0A0B07",
+  "theme_color": "#0A0B07",
+  "lang": "id-ID",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
