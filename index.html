@@ -2304,23 +2304,27 @@ function getFiltered(){
   return list;
 }
 
-// Badge kecil di tiap baris: kalau pair sudah di-deep-scan manual, tampilkan sinyal aslinya (RSI+trend).
-// Kalau belum, tampilkan tingkat "Momentum" dari Quick Score — istilah yang lebih gampang dipahami orang awam daripada angka mentah.
-// ADX & Arah (Long/Short/Sideways) per-row — diisi oleh queueRowScan()/doRowScan() begitu pair itu
-// discroll masuk layar. Sebelum ke-scan, keduanya balikin string kosong (nggak ada badge kosong/loading nempel).
-function adxBadgeHtml(symbol){
+// Badge gabungan ringkas per baris: MOM (Quick Score, langsung tampil dari tickerData) + ADX + Arah
+// (Long/Short/Sideways) yang keduanya diisi belakangan oleh queueRowScan()/doRowScan() begitu pair
+// itu discroll masuk layar. Sebelum ke-scan, cuma "MOM xx" yang tampil — begitu scan selesai,
+// patchRowBadges() nambahin "· ADX xx · Arah" di badge yang sama tanpa re-render seluruh baris.
+// showDir=false dipakai di tempat yang badge kustomnya SUDAH nyebut bias sendiri (Deep Scan Top 20,
+// Mode Trading, Markov results) — biar Arah nggak dobel/kontradiksi sama badge itu. ADX tetap selalu
+// ditampilkan di semua tempat.
+function rowStatusBadgeHtml(symbol, momScore, showDir){
   const deep = deepData[symbol];
-  if(!deep || typeof deep !== 'object' || deep.adx == null) return '';
-  const val = deep.adx;
-  const cls = val >= 40 ? 'score-hi' : val >= ADX_TREND_THRESHOLD ? 'score-mid' : 'score-lo';
-  return `<span class="badge-pill ${cls}">ADX ${val.toFixed(0)}</span>`;
-}
-function directionBadgeHtml(symbol){
-  const deep = deepData[symbol];
-  if(!deep || typeof deep !== 'object' || !deep.bias) return '';
-  const map = { long:{label:'Long', cls:'score-hi'}, short:{label:'Short', cls:'score-lo'}, sideways:{label:'Sideways', cls:'score-mid'} };
-  const m = map[deep.bias] || map.sideways;
-  return `<span class="badge-pill ${m.cls}">${m.label}</span>`;
+  const parts = [`MOM ${momScore}`];
+  let cls = 'score-' + scoreBadgeCls(momScore);
+  if(deep && typeof deep === 'object'){
+    if(deep.adx != null) parts.push(`ADX ${deep.adx.toFixed(0)}`);
+    if(showDir && deep.bias){
+      const map = { long:{label:'Long', cls:'score-hi'}, short:{label:'Short', cls:'score-lo'}, sideways:{label:'Sideways', cls:'score-mid'} };
+      const m = map[deep.bias] || map.sideways;
+      parts.push(m.label);
+      cls = m.cls;
+    }
+  }
+  return `<span class="badge-pill ${cls}">${parts.join(' · ')}</span>`;
 }
 
 // Cuma tampil kalau funding rate lagi ekstrem — biar nggak jadi noise buat pair yang normal-normal saja
@@ -2366,16 +2370,18 @@ function coinRowHtml(d, wl, badgeHtmlStr){
   const up = parseFloat(d.priceChangePercent) >= 0;
   const starred = wl.has(d.symbol);
   const aiScore = computeMomentumScore(d);
-  // Slot Arah (Long/Short/Sideways) cuma ditampilkan kalau nggak ada badge custom yang udah nyebut bias-nya sendiri
-  // (mis. hasil Deep Scan Top 20 yang udah nulis "LONG · Skor.. · RR..") — biar nggak dobel/kontradiksi metode.
-  const dirSlot = badgeHtmlStr ? '' : `<span class="dir-slot" data-symbol="${d.symbol}">${directionBadgeHtml(d.symbol)}</span>`;
+  // Arah (Long/Short/Sideways) cuma dimasukkan ke badge gabungan kalau nggak ada badge custom yang udah
+  // nyebut bias-nya sendiri (mis. hasil Deep Scan Top 20 yang udah nulis "LONG · Skor.. · RR..") — biar
+  // nggak dobel/kontradiksi metode.
+  const showDir = !badgeHtmlStr;
+  const statusPill = `<span class="row-status-slot" data-symbol="${d.symbol}" data-show-dir="${showDir?1:0}">${rowStatusBadgeHtml(d.symbol, aiScore, showDir)}</span>`;
   return `
     <div class="coin-row" data-symbol="${d.symbol}" onclick="openDetail('${d.symbol}')">
       <button class="crow-star ${starred?'active':''}" onclick="event.stopPropagation(); onStarClick('${d.symbol}')">${starred?'★':'☆'}</button>
       <div class="crow-avatar" style="background:${symbolColor(d.symbol)}">${symbolInitials(d.symbol)}</div>
       <div class="crow-info">
-        <div class="crow-name"><span class="crow-symtext">${d.symbol.replace('USDT','')}</span><span class="crow-sub">USDT-M</span><span class="ai-score-pill ${scoreBadgeCls(aiScore)}">MOM ${aiScore}</span></div>
-        <div class="crow-badges">${badgeHtmlStr}<span class="adx-slot" data-symbol="${d.symbol}">${adxBadgeHtml(d.symbol)}</span>${dirSlot}${fundingBadgeHtml(d.fundingRate)}</div>
+        <div class="crow-name"><span class="crow-symtext">${d.symbol.replace('USDT','')}</span><span class="crow-sub">USDT-M</span></div>
+        <div class="crow-badges">${badgeHtmlStr}${statusPill}${fundingBadgeHtml(d.fundingRate)}</div>
       </div>
       <div class="crow-right">
         <div class="crow-price">${fmtPrice(d.lastPrice)}</div>
@@ -2801,11 +2807,16 @@ async function doRowScan(symbol){
   patchRowBadges(symbol);
 }
 
-// Update badge ADX/Arah langsung di tempat (tanpa render ulang seluruh list) — aman dipanggil biarpun
-// simbol yang sama lagi tampil di dua tempat sekaligus (list utama & hasil Deep Scan Top 20).
+// Update badge gabungan (MOM/ADX/Arah) langsung di tempat (tanpa render ulang seluruh list) — aman
+// dipanggil biarpun simbol yang sama lagi tampil di dua tempat sekaligus (list utama & hasil Deep Scan
+// Top 20), masing-masing instance baca data-show-dir sendiri jadi nggak saling ketuker.
 function patchRowBadges(symbol){
-  document.querySelectorAll(`.adx-slot[data-symbol="${symbol}"]`).forEach(el=>{ el.innerHTML = adxBadgeHtml(symbol); });
-  document.querySelectorAll(`.dir-slot[data-symbol="${symbol}"]`).forEach(el=>{ el.innerHTML = directionBadgeHtml(symbol); });
+  const row = tickerData.find(x=>x.symbol===symbol);
+  const momScore = row ? computeMomentumScore(row) : 0;
+  document.querySelectorAll(`.row-status-slot[data-symbol="${symbol}"]`).forEach(el=>{
+    const showDir = el.getAttribute('data-show-dir') === '1';
+    el.innerHTML = rowStatusBadgeHtml(symbol, momScore, showDir);
+  });
 }
 
 let rowObserver = null;
