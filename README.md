@@ -2,7 +2,7 @@
 
 Progressive Web App (PWA) untuk screening Binance USDT-M Futures secara real-time, langsung dari browser HP atau PC — tanpa API key, tanpa backend, tanpa biaya server.
 
-**Live:** https://bunyaxter.github.io/patah-pensill-screener-crypto/
+**Live:** https://patahpensil.github.io/screener-crypto-patah-pensill/
 
 ## Navigasi
 
