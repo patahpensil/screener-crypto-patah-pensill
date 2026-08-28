@@ -2560,8 +2560,15 @@ function atr(candles, period){
 // Bollinger Bands: SMA20 +/- 2*stddev
 function bollinger(closes, period, mult){
   const slice = closes.slice(-period);
-  const mid = slice.reduce((a,b)=>a+b,0)/period;
-  const variance = slice.reduce((a,b)=>a+Math.pow(b-mid,2),0)/period;
+  // FIX: dulu dibagi `period`, bukan jumlah data yang benar-benar ada. Kalau candle-nya kurang dari
+  // period (pair baru listing, atau timeframe besar di pair muda), mid & deviasi jadi terskala salah —
+  // 10 candle dengan period 20 menghasilkan mid persis SETENGAH rata-rata sebenarnya, dan band-nya ikut
+  // ngawur, tanpa tanda apa pun kalau angkanya nggak bisa dipercaya.
+  // Sekarang ikut sikap atr() dan adx(): data kurang -> null, bukan angka yang kelihatan valid tapi salah.
+  // Semua pemanggil sudah menangani null (`d.bb ? ... : '-'`).
+  if(slice.length < period) return null;
+  const mid = slice.reduce((a,b)=>a+b,0)/slice.length;
+  const variance = slice.reduce((a,b)=>a+Math.pow(b-mid,2),0)/slice.length;
   const sd = Math.sqrt(variance);
   return { mid, upper: mid+mult*sd, lower: mid-mult*sd, bandwidthPct: (mid>0 ? ((mult*sd*2)/mid)*100 : 0) };
 }
