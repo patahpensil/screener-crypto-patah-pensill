@@ -2097,11 +2097,18 @@ let wsReconnectTimer = null;
 function setWsStatus(connected){
   wsConnected = connected;
   const el = document.getElementById('sidebarPingStatus');
-  if(el && connected){
+  if(!el) return;
+  if(connected){
     el.style.color = 'var(--mint)';
     el.textContent = `🟢 WebSocket Live — real-time`;
+  } else {
+    // FIX: cabang ini dulu kosong — status pas WS putus diserahkan ke pingBinance() di siklus
+    // BERIKUTNYA, artinya label "🟢 WebSocket Live" bisa nyangkut sampai 60 detik setelah koneksinya
+    // beneran mati. Sekarang langsung dikoreksi begitu putus; pingBinance() yang nurunin ke status
+    // REST normal di siklus berikutnya kalau ping-nya sukses.
+    el.style.color = 'var(--text-3)';
+    el.textContent = `○ REST Polling — WebSocket putus, nyoba nyambung lagi`;
   }
-  // Kalau WS putus, biarkan pingBinance() (REST) yang isi status-nya lagi di siklus berikutnya
 }
 
 function connectBinanceWS(){
@@ -4774,7 +4781,17 @@ async function pingBinance(){
     const res = await safeFetch(FAPI + '/fapi/v1/time');
     await res.json();
     const ms = Math.round(performance.now()-t0);
-    if(el){ el.style.color = 'var(--mint)'; el.textContent = `All Systems Operational · ${ms}ms`; }
+    if(el){
+      el.style.color = 'var(--mint)';
+      // FIX: baris ini dulu SELALU nulis "All Systems Operational", jadi tiap 60 detik dia numpuk label
+      // "🟢 WebSocket Live" yang barusan dipasang setWsStatus(true). Karena setWsStatus(true) cuma jalan
+      // sekali pas WS baru nyambung, indikator WS efektifnya cuma kelihatan <60 detik seumur sesi —
+      // sidebar selalu keliatan kayak mode REST biasa padahal WebSocket-nya hidup.
+      // Sekarang ping cuma NAMBAHIN latensi ke label yang sesuai kondisi, bukan nimpa kondisinya.
+      el.textContent = wsConnected
+        ? `🟢 WebSocket Live — real-time · ${ms}ms`
+        : `All Systems Operational · ${ms}ms`;
+    }
   }catch(err){
     // Lagi jeda rate limit itu BUKAN koneksi bermasalah — app sengaja nahan diri. Dibedakan biar
     // statusnya nggak bohong pas sebenarnya jaringannya baik-baik saja.
