@@ -4082,6 +4082,23 @@ async function loadDetail(symbol, tf){
       computeConfluence(symbol).catch(()=>null),
     ]);
     const closes = candles.map(c=>c.close);
+
+    // Pair yang baru listing bisa punya candle jauh lebih sedikit dari yang diminta. Indikator rekursif
+    // (RSI/EMA/MACD/Bollinger) balikin NaN kalau dipaksa jalan di histori sependek itu, dan NaN-nya
+    // ke-render mentah ke layar sebagai teks "NaN" tanpa penjelasan apa-apa. Ambang 30 disamakan dengan
+    // computeConfluence() dan qualifyForMode() yang sudah lebih dulu menjaga hal yang sama.
+    const MIN_CANDLES_FOR_DETAIL = 30;
+    if(closes.length < MIN_CANDLES_FOR_DETAIL){
+      const shortHtml = `<div class="modal-loading">⚠️ <b>${escapeHtml(symbol.replace('USDT',''))}</b> baru punya ${closes.length} candle di timeframe ${tf.toUpperCase()} — belum cukup buat menghitung RSI/EMA/MACD/Bollinger dengan benar (minimal ${MIN_CANDLES_FOR_DETAIL}). Coba timeframe yang lebih kecil.</div>`;
+      document.getElementById('modalBody').innerHTML = shortHtml;
+      ['wsAnalysisBody','wsValidationBody','wsDecisionBody','wsTradingSetupBody'].forEach(id=>{
+        const el = document.getElementById(id);
+        if(el) el.innerHTML = shortHtml;
+      });
+      lastDetailFull = null; // jangan biarin tombol Copy AI / Simpan Histori kepakai data pair sebelumnya
+      return;
+    }
+
     const lastPrice = closes[closes.length-1];
 
     const ema21arr = ema(closes, 21);
