@@ -4136,6 +4136,12 @@ async function computeConfluence(symbol){
 
 async function loadDetail(symbol, tf){
   const myToken = ++detailRequestToken;
+  // Selama pemuatan berlangsung, nggak ada "detail terakhir" yang sah. openDetail() sudah mengosongkan
+  // ini, tapi TIGA pemanggil lain nggak: selectWorkspaceSymbol(), tombol "Coba Lagi", dan pemilih
+  // timeframe. Jadi kalau pemuatan berikutnya GAGAL, layar menampilkan pesan error sementara
+  // lastDetailFull masih memegang data pair/timeframe SEBELUMNYA — dan "Copy Ringkasan buat AI" dengan
+  // senang hati menyalin data lama itu. Dikosongkan di satu titik yang dilewati semua pemanggil.
+  lastDetailFull = null;
   document.getElementById('modalBody').innerHTML = `<div class="modal-loading"><span class="loader"></span>Memuat indikator ${tf.toUpperCase()}…</div>`;
   try{
     const [candles, oiHist, lsRatio, topRatio, confluence] = await Promise.all([
@@ -5348,26 +5354,35 @@ async function refreshTvBridge(){
   if(!currentDetailSymbol) return;
   const statusEl = document.getElementById('tvBridgeStatus');
   const imgEl = document.getElementById('tvBridgeImg');
+  // Simbol & timeframe DIKUNCI sekali di awal. Sebelumnya currentDetailSymbol dibaca ulang di tiap
+  // titik pemakaian, padahal ada dua await di antaranya — kalau pengguna ganti pair di tengah jalan,
+  // perintah /open dan permintaan /screenshot bisa merujuk simbol yang BERBEDA, dan hasilnya tetap
+  // ditulis ke panel pair yang sudah bukan itu lagi.
+  const symbol = currentDetailSymbol;
   const tf = currentDetailTf || '4h';
-  statusEl.textContent = `Membuka ${currentDetailSymbol} (${tf}) di TradingView…`;
+  const masihRelevan = () => symbol === currentDetailSymbol && tf === (currentDetailTf || '4h');
+  statusEl.textContent = `Membuka ${symbol} (${tf}) di TradingView…`;
   statusEl.classList.remove('err');
   imgEl.classList.remove('show');
   try{
-    const openRes = await fetch(`${TV_BRIDGE_URL}/open?symbol=${encodeURIComponent(currentDetailSymbol)}&tf=${encodeURIComponent(tf)}`);
+    const openRes = await fetch(`${TV_BRIDGE_URL}/open?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}`);
     const openData = await openRes.json();
+    if(!masihRelevan()) return; // pengguna udah pindah pair/timeframe — jangan tulis hasil basi
     if(!openRes.ok || !openData.success) throw new Error(openData.error || `HTTP ${openRes.status}`);
 
     statusEl.textContent = `Mengambil screenshot chart…`;
-    const shotUrl = `${TV_BRIDGE_URL}/screenshot?symbol=${encodeURIComponent(currentDetailSymbol)}&tf=${encodeURIComponent(tf)}&t=${Date.now()}`;
+    const shotUrl = `${TV_BRIDGE_URL}/screenshot?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&t=${Date.now()}`;
     await new Promise((resolve, reject)=>{
       imgEl.onload = resolve;
       imgEl.onerror = ()=>reject(new Error('gagal memuat gambar screenshot'));
       imgEl.src = shotUrl;
     });
+    if(!masihRelevan()) return;
     imgEl.classList.add('show');
     statusEl.textContent = `${openData.tv_symbol} · ${tf.toUpperCase()} — live di TradingView Desktop`;
   }catch(err){
     console.error(err);
+    if(!masihRelevan()) return; // kegagalan pair lama jangan nutupi panel pair yang sekarang
     statusEl.textContent = `Gagal konek ke bridge TradingView (${TV_BRIDGE_URL}). Pastikan "npm run bridge" jalan dan TradingView Desktop aktif. (${err.message})`;
     statusEl.classList.add('err');
   }
