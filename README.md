@@ -41,12 +41,22 @@ Progressive Web App (PWA) untuk screening Binance USDT-M Futures secara real-tim
 ## Struktur File
 
 ```
-index.html              seluruh app (HTML+CSS+JS, single file)
-sw.js                    service worker (cache shell app, data selalu live/no-cache)
-manifest.json            metadata PWA
-icon-192.png             ikon 192x192
-icon-512.png             ikon 512x512
-icon-512-maskable.png    ikon maskable 512x512
+index.html                     seluruh app (HTML+CSS+JS, single file)
+sw.js                          service worker (cache shell app, data selalu live/no-cache)
+manifest.json                  metadata PWA
+icon-192.png                   ikon 192x192
+icon-512.png                   ikon 512x512
+icon-512-maskable.png          ikon maskable 512x512
+scripts/check.js               pemeriksaan statis (syntax, fungsi hilang, id DOM, handler inline)
+scripts/check-cache-bump.js    memastikan CACHE_NAME naik tiap index.html/sw.js berubah
+scripts/selftest.js            memastikan pemeriksanya sendiri masih bisa menolak cacat
+.github/workflows/checks.yml   menjalankan ketiganya otomatis di GitHub
+```
+
+Pemeriksaan bisa dijalankan sendiri sebelum commit, cukup pakai Node tanpa install apa pun:
+
+```
+node scripts/check.js
 ```
 
 ## Deploy ke GitHub Pages
@@ -54,7 +64,7 @@ icon-512-maskable.png    ikon maskable 512x512
 1. Push semua file di atas ke root branch `main` (atau folder `/docs`, sesuaikan setting Pages).
 2. Repo → Settings → Pages → Source: pilih branch & folder yang berisi file-file ini.
 3. Tunggu build selesai, akses via `https://<username>.github.io/<repo>/`.
-4. Setiap update `index.html`/`sw.js`, **naikkan versi `CACHE_NAME`** di `sw.js` (baris pertama) — ini yang memastikan HP pengguna otomatis ambil versi baru, bukan versi lama dari cache.
+4. Setiap update `index.html`/`sw.js`, **naikkan versi `CACHE_NAME`** di `sw.js` (baris pertama) — ini yang memastikan HP pengguna otomatis ambil versi baru, bukan versi lama dari cache. GitHub Actions ikut menjaga aturan ini: kalau salah satu file itu berubah tanpa `CACHE_NAME` naik, pemeriksaannya gagal.
 
 ## Catatan Teknis
 

@@ -12,24 +12,30 @@ The README.md (in Indonesian) is the product-level source of truth for features 
 
 ## Repo structure
 
-There is no build system, package manager, or test runner. This is deployed as-is to GitHub Pages.
+There is no build system, package manager, or bundler, and nothing to compile. This is deployed as-is to GitHub Pages. There *are* now zero-dependency check scripts (see Development workflow below) — they are not a test suite for app behaviour, only a guard against mistakes that would otherwise surface in a user's browser.
 
 ```
-index.html              the entire app: HTML + CSS + JS in one file (~5,300 lines)
-sw.js                    service worker — caches the app shell, never caches live API data
-manifest.json            PWA metadata
-icon-*.png               app icons
+index.html                     the entire app: HTML + CSS + JS in one file (~5,300 lines)
+sw.js                          service worker — caches the app shell, never caches live API data
+manifest.json                  PWA metadata
+icon-*.png                     app icons
+scripts/check.js               static checks (syntax, undefined functions, DOM ids, inline handlers)
+scripts/check-cache-bump.js    enforces the CACHE_NAME rule below
+scripts/selftest.js            proves check.js actually rejects defects, so it can't rot into always-green
+.github/workflows/checks.yml   runs all three on push + PR
 ```
 
 ## Development workflow
 
 - Edit `index.html` directly; there's nothing to compile. Open it in a browser (or serve the folder statically) to test.
-- No lint/test/build commands exist in this repo. Verify changes by loading the page and exercising the relevant workspace in-browser.
-- Deploy = push `index.html`, `sw.js`, `manifest.json`, and the icons to the `main` branch (GitHub Pages serves from root per README).
+- **Before committing, run `node scripts/check.js`.** Requires only Node — no install step. It catches, in seconds, the class of mistake this single-file app is most prone to: a function called but never defined (the `mkComputeFeatures()` bug sat dead for a long time because its ReferenceError was swallowed by a surrounding catch), a `getElementById` pointing at an id that doesn't exist, a duplicate id, an inline `onclick` naming a function that isn't there, or a plain syntax error.
+- These checks are static only. They say nothing about whether an indicator is *correct* — that still needs loading the page and exercising the relevant workspace in-browser.
+- `node scripts/selftest.js` verifies the checker itself by injecting real defects into a throwaway copy and confirming each one is rejected. Run it after changing `scripts/check.js`.
+- Deploy = push to the `main` branch. GitHub Pages is configured in "deploy from a branch" mode (main, root folder) and rebuilds automatically; the live site updates roughly 30–45 seconds after the push. There is no deploy workflow, and none is needed — `.github/workflows/checks.yml` only runs checks.
 
 ### ⚠️ MANDATORY: bump the cache version on every change
 
-**Any time `index.html` or `sw.js` is modified, `CACHE_NAME` on line 1 of `sw.js` MUST be bumped** (e.g. `pp-screener-v64` → `pp-screener-v65`). This is not optional. The service worker precaches the app shell (`SHELL_FILES`) under this version key and only purges old caches when the key changes (`activate` handler in `sw.js`). Skip the bump and users' browsers keep serving the stale cached shell indefinitely instead of picking up the new code — this is the exact failure mode the README warns about for GitHub Pages deploys.
+**Any time `index.html` or `sw.js` is modified, `CACHE_NAME` on line 1 of `sw.js` MUST be bumped** (e.g. `pp-screener-v64` → `pp-screener-v65`). This is not optional, and CI enforces it — `scripts/check-cache-bump.js` fails the build if either file changed without the version moving. The service worker precaches the app shell (`SHELL_FILES`) under this version key and only purges old caches when the key changes (`activate` handler in `sw.js`). Skip the bump and users' browsers keep serving the stale cached shell indefinitely instead of picking up the new code — this is the exact failure mode the README warns about for GitHub Pages deploys.
 
 ## Code organization inside `index.html`
 

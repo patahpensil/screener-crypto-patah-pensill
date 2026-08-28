@@ -1,0 +1,43 @@
+name: Pemeriksaan
+
+# Repo ini tidak punya build step, package manager, atau test runner — deploy-nya
+# langsung dari branch main ke GitHub Pages. Workflow ini BUKAN untuk deploy
+# (Pages sudah menangani itu sendiri), tapi untuk menahan kesalahan yang kalau
+# lolos cuma ketahuan setelah dibuka di browser pengguna.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Pemeriksaan statis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Riwayat penuh: pemeriksaan CACHE_NAME perlu membandingkan sw.js
+          # dengan commit pembanding.
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Instrumennya divalidasi dulu sebelum hasilnya dipercaya: selftest
+      # menyuntikkan cacat buatan dan memastikan check.js benar-benar menolaknya.
+      # Tanpa ini, check.js yang rusak akan selalu hijau tanpa ada yang sadar.
+      - name: Self-test pemeriksa
+        run: node scripts/selftest.js
+
+      - name: Pemeriksaan statis
+        run: node scripts/check.js
+
+      - name: Bump CACHE_NAME
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/check-cache-bump.js
