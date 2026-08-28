@@ -3235,7 +3235,11 @@ function mkGetTransitionScore(matrix, counts, currentState){
 
 // row: item dari tickerData ({quoteVolume, fundingRate, ...})
 function mkPassLiquidityFilter(row, opts={}){
-  const { minQuoteVolume24h = 5_000_000, maxAbsFundingRate = 0.03 } = opts;
+  // FIX satuan: maxAbsFundingRate dulu 0.03, tapi dibandingkan dengan row.fundingRate yang formatnya
+  // DESIMAL (0.0001 = 0.01%) — jadi ambangnya kebaca sebagai 3% funding, di atas cap funding Binance
+  // manapun. Efeknya filter "Funding rate ekstrem" nggak pernah nyaring satu pair pun. Yang dimaksud
+  // 0.03%, jadi dalam desimal nilainya 0.0003 (≈3x baseline funding normal 0.01%).
+  const { minQuoteVolume24h = 5_000_000, maxAbsFundingRate = 0.0003 } = opts;
   const reasons = [];
   if(row.quoteVolume < minQuoteVolume24h) reasons.push('Volume 24h terlalu rendah');
   if(row.fundingRate!=null && Math.abs(row.fundingRate) > maxAbsFundingRate) reasons.push('Funding rate ekstrem');
