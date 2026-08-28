@@ -2954,8 +2954,12 @@ async function runDeepScanTop20(){
         if(winPoints <= (side==='long'?es.shortPoints:es.longPoints)) { bumpProgress(); continue; } // harus beneran menang di sisi tren, bukan cuma seri
 
         // ===== SATU-SATUNYA SISTEM SKOR: AI Confluence Score (sama persis kayak Decision Engine) =====
+        // confluence[].bias WAJIB pakai kosakata tren ('bullish'/'bearish'), bukan kosakata trade
+        // ('long'/'short'). Dulu diisi `side` (long/short) — kebetulan "benar" karena pembanding di
+        // computeConfluenceCategories juga salah dengan cara yang sama, jadi dua kesalahan itu saling
+        // menutupi dan Deep Scan selalu dapat Multi Timeframe 100 sementara modal selalu dapat 0.
         const dMini = { symbol:item.symbol, tf:'4h', lastPrice, ema21, ema30, avwap, fib, structure, volRatio, fundingRate,
-          confluence: [{tf:'1h',bias:side},{tf:'4h',bias:side},{tf:'1d',bias:side}], candles };
+          confluence: [{tf:'1h',bias:trendBias},{tf:'4h',bias:trendBias},{tf:'1d',bias:trendBias}], candles };
         const entryPlan = computeEntryPlan(dMini);
         const pattern = detectCandlePattern(candles);
         const fvg = detectFVG(candles);
@@ -4288,6 +4292,21 @@ function detectCandlePattern(candles){
 // sebelumnya nggak sinkron: kriteria skor pakai >=15, label tampilan pakai >=25. Sekarang cuma 1 angka.
 const ADX_TREND_THRESHOLD = 25;
 const RR_THRESHOLD_BY_TF = { '15m':1.2, '30m':1.2, '1h':1.2, '2h':1.5, '4h':1.5, '12h':2.0, '1d':2.0, '1w':2.0 };
+
+// Jembatan DUA KOSAKATA yang dipakai app ini, dan yang selama ini jadi sumber bug diam-diam:
+//   - arah TREN/STRUKTUR pakai 'bullish' | 'bearish' | 'transition' | 'mixed' | 'neutral'
+//     (computeEmaTrend, analyzeMarketStructure, computeConfluence)
+//   - arah TRADE pakai 'long' | 'short' (winSide, criteria[].side)
+// Keduanya nggak pernah sama sebagai string, jadi `bias === winSide` SELALU false — dan karena
+// hasilnya cuma bikin skor jadi rendah (bukan error), nggak ada yang kelihatan rusak.
+// Kembaliannya null berarti "nggak berpihak ke manapun" (transition/mixed/neutral) — sengaja bukan
+// 'short', karena struktur yang lagi transisi itu belum memihak, bukan memihak turun.
+function biasToSide(bias){
+  if(bias === 'bullish') return 'long';
+  if(bias === 'bearish') return 'short';
+  return null;
+}
+
 function computeConfluenceCategories(d, criteria, winSide, entryPlan, pattern, fvg){
   const critSide = (name) => { const f = criteria.find(c=>c.name===name); return f ? f.side : undefined; };
   const sideScore = (side) => side===undefined ? 50 : side===null ? 50 : (winSide && side===winSide ? 100 : 0);
@@ -4299,14 +4318,22 @@ function computeConfluenceCategories(d, criteria, winSide, entryPlan, pattern, f
 
   const cats = [];
   // Market Structure: gabungan 5 indikator soal LEVEL harga (struktur, break&retest, VWAP, Fibonacci, FVG)
-  const structSide = d.structure && d.structure.bias==='neutral' ? null : (d.structure && d.structure.bias ? (d.structure.bias==='bullish'?'long':'short') : undefined);
+  // FIX: pemetaan lama `bias==='bullish' ? 'long' : 'short'` bikin struktur 'transition' (HH-LL /
+  // LH-HL, alias lagi melebar/menyempit) dihitung sebagai SHORT penuh — padahal transisi itu justru
+  // kondisi belum memihak. biasToSide() memetakannya ke null = netral (skor 50), bukan 0.
+  const structSide = d.structure && d.structure.bias ? biasToSide(d.structure.bias) : undefined;
   const msSides = [structSide, critSide('Break & Retest Struktur'), critSide('Anchored VWAP'), critSide('Fibonacci Golden Pocket (50-61.8%)'), fvg ? fvg.side : null]
     .filter(s=>s!==undefined);
   const msScore = msSides.length ? Math.round(msSides.reduce((s,x)=>s+sideScore(x),0)/msSides.length) : 50;
   cats.push({name:'Market Structure', weight:17, real:true, score: msScore});
 
+  // FIX: dulu `c.bias === winSide`, yaitu membandingkan 'bullish'/'bearish' dengan 'long'/'short'.
+  // Dua kosakata berbeda, jadi cocoknya NOL SELALU — kategori berbobot 15 ini praktis mati di angka 0
+  // untuk setiap pair di modal & workspace, walaupun keempat timeframe kompak searah trade. Karena
+  // efeknya cuma "skor kok rendah terus", bukan error, ini nggak pernah kelihatan sebagai kerusakan.
+  // Diukur pada setup yang SEMUA kriterianya sepakat LONG: skor akhir 81 -> seharusnya 96 (selisih 15).
   if(d.confluence && d.confluence.length && winSide){
-    const match = d.confluence.filter(c=>c.bias===winSide).length;
+    const match = d.confluence.filter(c=>biasToSide(c.bias)===winSide).length;
     cats.push({name:'Multi Timeframe', weight:15, real:true, score: Math.round(match/d.confluence.length*100)});
   } else cats.push({name:'Multi Timeframe', weight:15, real:true, score:50});
 
