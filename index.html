@@ -3255,64 +3255,72 @@ async function runMarkovScreening(){
   const myToken = ++markovScanToken;
   const btn = document.getElementById('markovRescanBtn');
   if(btn) btn.disabled = true;
-  const statusEl = document.getElementById('markovStatus');
-  const listEl = document.getElementById('markovList');
-  listEl.innerHTML = `<div class="empty-state"><span class="loader"></span>Menyiapkan scan Markov…</div>`;
-
-  const POOL = 40; // kandidat awal, pair paling likuid — sama pola dengan Deep Scan/Mode Trading
-  const candidates = [...tickerData].sort((a,b)=>b.quoteVolume-a.quoteVolume).slice(0, POOL);
-  const results = [];
-  let done = 0;
-  statusEl.textContent = `Membangun state sequence & transition matrix ${candidates.length} pair paling likuid… 0/${candidates.length}`;
-
-  // Regime pasar: proxy dari state BTCUSDT sendiri di timeframe 4H
-  // FIX: baris ini dulu manggil mkComputeFeatures() yang NGGAK PERNAH didefinisikan di file ini (sisa port
-  // dari modul asli — yang ada cuma mkComputeFeaturesAt, signature-nya beda total). ReferenceError-nya
-  // ketelen catch di bawah, jadi Regime Pasar diam-diam nggak pernah kebaca sejak fitur ini ada: labelnya
-  // selalu "belum tersedia" dan semua regimeNote di hasil selalu "Netral terhadap regime pasar".
-  // Sekarang pakai mkBuildStateSequence — jalur perhitungan state yang SAMA PERSIS dipakai tiap pair —
-  // lalu ambil state terakhirnya, biar nggak ada 2 definisi state yang bisa beda hasil.
-  // Limit candle disamakan dengan scan pair (MK_WINDOW + 130) supaya EMA50/RSI dapat warm-up yang sama,
-  // sekalian nyangkut di entry cache yang sama pas BTCUSDT ikut discan sebagai kandidat (nol request ekstra).
   try{
-    const btcCandles = await fetchKlinesFull('BTCUSDT', '4h', MK_WINDOW + 130);
-    if(myToken === markovScanToken && btcCandles.length >= MK_WINDOW + 2){
-      const btcSequence = mkBuildStateSequence(btcCandles, MK_WINDOW);
-      if(btcSequence.length) markovRegimeState = btcSequence[btcSequence.length-1];
-    }
-  }catch(e){ /* regime tetap null kalau gagal, nggak fatal buat scan pair */ }
-  if(myToken !== markovScanToken) return;
+    const statusEl = document.getElementById('markovStatus');
+    const listEl = document.getElementById('markovList');
+    listEl.innerHTML = `<div class="empty-state"><span class="loader"></span>Menyiapkan scan Markov…</div>`;
 
-  const CONCURRENCY = 5;
-  let idx = 0;
-  async function worker(){
-    while(idx < candidates.length){
-      const item = candidates[idx++];
-      try{
-        const candles = await fetchKlinesFull(item.symbol, '4h', MK_WINDOW + 130); // ~130 titik historis buat isi transition matrix
-        if(myToken !== markovScanToken) return;
-        if(candles.length >= MK_WINDOW + 20){
-          const sequence = mkBuildStateSequence(candles, MK_WINDOW);
-          if(sequence.length >= 10){
-            const { matrix, counts } = mkBuildTransitionMatrix(sequence);
-            const currentState = sequence[sequence.length-1];
-            const scoreResult = mkGetTransitionScore(matrix, counts, currentState);
-            const liq = mkPassLiquidityFilter(item);
-            if(liq.pass) results.push({ symbol:item.symbol, ...scoreResult });
+    const POOL = 40; // kandidat awal, pair paling likuid — sama pola dengan Deep Scan/Mode Trading
+    const candidates = [...tickerData].sort((a,b)=>b.quoteVolume-a.quoteVolume).slice(0, POOL);
+    const results = [];
+    let done = 0;
+    statusEl.textContent = `Membangun state sequence & transition matrix ${candidates.length} pair paling likuid… 0/${candidates.length}`;
+
+    // Regime pasar: proxy dari state BTCUSDT sendiri di timeframe 4H
+    // FIX: baris ini dulu manggil mkComputeFeatures() yang NGGAK PERNAH didefinisikan di file ini (sisa port
+    // dari modul asli — yang ada cuma mkComputeFeaturesAt, signature-nya beda total). ReferenceError-nya
+    // ketelen catch di bawah, jadi Regime Pasar diam-diam nggak pernah kebaca sejak fitur ini ada: labelnya
+    // selalu "belum tersedia" dan semua regimeNote di hasil selalu "Netral terhadap regime pasar".
+    // Sekarang pakai mkBuildStateSequence — jalur perhitungan state yang SAMA PERSIS dipakai tiap pair —
+    // lalu ambil state terakhirnya, biar nggak ada 2 definisi state yang bisa beda hasil.
+    // Limit candle disamakan dengan scan pair (MK_WINDOW + 130) supaya EMA50/RSI dapat warm-up yang sama,
+    // sekalian nyangkut di entry cache yang sama pas BTCUSDT ikut discan sebagai kandidat (nol request ekstra).
+    try{
+      const btcCandles = await fetchKlinesFull('BTCUSDT', '4h', MK_WINDOW + 130);
+      if(myToken === markovScanToken && btcCandles.length >= MK_WINDOW + 2){
+        const btcSequence = mkBuildStateSequence(btcCandles, MK_WINDOW);
+        if(btcSequence.length) markovRegimeState = btcSequence[btcSequence.length-1];
+      }
+    }catch(e){ /* regime tetap null kalau gagal, nggak fatal buat scan pair */ }
+    if(myToken !== markovScanToken) return;
+
+    const CONCURRENCY = 5;
+    let idx = 0;
+    async function worker(){
+      while(idx < candidates.length){
+        const item = candidates[idx++];
+        try{
+          const candles = await fetchKlinesFull(item.symbol, '4h', MK_WINDOW + 130); // ~130 titik historis buat isi transition matrix
+          if(myToken !== markovScanToken) return;
+          if(candles.length >= MK_WINDOW + 20){
+            const sequence = mkBuildStateSequence(candles, MK_WINDOW);
+            if(sequence.length >= 10){
+              const { matrix, counts } = mkBuildTransitionMatrix(sequence);
+              const currentState = sequence[sequence.length-1];
+              const scoreResult = mkGetTransitionScore(matrix, counts, currentState);
+              const liq = mkPassLiquidityFilter(item);
+              if(liq.pass) results.push({ symbol:item.symbol, ...scoreResult });
+            }
           }
-        }
-      }catch(e){ /* skip pair kalau fetch gagal */ }
-      done++;
-      statusEl.textContent = `Membangun state sequence & transition matrix ${candidates.length} pair paling likuid… ${done}/${candidates.length}`;
+        }catch(e){ /* skip pair kalau fetch gagal */ }
+        done++;
+        statusEl.textContent = `Membangun state sequence & transition matrix ${candidates.length} pair paling likuid… ${done}/${candidates.length}`;
+      }
     }
-  }
-  await Promise.all(Array.from({length:CONCURRENCY}, worker));
-  if(myToken !== markovScanToken) return; // scan ini udah usang — jangan render, biarin scan yang lebih baru yang nulis hasil
-  if(btn) btn.disabled = false;
+    await Promise.all(Array.from({length:CONCURRENCY}, worker));
+    if(myToken !== markovScanToken) return; // scan ini udah usang — jangan render, biarin scan yang lebih baru yang nulis hasil
 
-  results.sort((a,b)=>b.score-a.score);
-  markovResults = results;
-  renderMarkovResults();
+    results.sort((a,b)=>b.score-a.score);
+    markovResults = results;
+    renderMarkovResults();
+  }finally{
+    // Tombol cuma boleh dihidupkan lagi oleh scan TERBARU. Kalau scan ini udah disusul scan lain,
+    // biarin scan itu yang pegang kendali tombolnya — jangan diaktifkan di tengah scan yang masih jalan.
+    // FIX: sebelumnya re-enable ditaruh di tengah fungsi, jadi kelewat tiap kali scan keluar lewat
+    // early-return (`myToken !== markovScanToken`) atau kelempar exception — tombol "Scan Ulang" bisa
+    // nyangkut disabled permanen sampai halaman di-reload.
+    if(btn && myToken === markovScanToken) btn.disabled = false;
+  }
 }
 
 // Pesan human-readable per pair — port dari formatScreeningLabel() versi asli modul.
