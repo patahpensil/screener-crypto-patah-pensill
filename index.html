@@ -2890,18 +2890,43 @@ async function runDeepScanTop20(){
 
   const CONCURRENCY = 6;
   let idx = 0;
+  // Satu tempat buat majuin progres. Sebelumnya teks status ini ditulis ulang di beberapa titik keluar,
+  // dan salah satunya (candles.length < 50) kelewat nggak ikut nge-update label — counter maju tapi
+  // tulisan di layar diam.
+  const bumpProgress = ()=>{
+    done++;
+    statusEl.textContent = `Menyeleksi ${candidates.length} pair paling likuid (${SCAN_LABEL})… ${done}/${candidates.length}`;
+  };
   async function worker(){
     while(idx < candidates.length){
       const item = candidates[idx++];
       try{
-        const [b1h,b4h,b1d] = await Promise.all(['1h','4h','1d'].map(tf=>quickTrendBias(item.symbol, tf)));
+        // GATE KESELARASAN 1H/4H/1D — sekarang dicek BERURUTAN dan berhenti di ketidakcocokan pertama.
+        // Gate-nya murni AND, jadi hasil akhirnya identik dengan versi Promise.all sebelumnya; bedanya
+        // pair yang udah gugur di 1H nggak lagi bikin request 1D & 4H yang hasilnya nggak akan kepakai.
+        // Mayoritas pair gugur di langkah pertama, jadi ini motong request gate-nya jauh.
+        const b1h = await quickTrendBias(item.symbol, '1h');
         if(myToken !== modeScanToken) return; // ada scan lain yang lebih baru — berhenti diam-diam
-        if(!(b1h && b4h && b1d && b1h===b4h && b4h===b1d)){ done++; statusEl.textContent = `Menyeleksi ${candidates.length} pair paling likuid (${SCAN_LABEL})… ${done}/${candidates.length}`; continue; }
-        const trendBias = b1h;
+        if(!b1h){ bumpProgress(); continue; }
+
+        const b1d = await quickTrendBias(item.symbol, '1d');
+        if(myToken !== modeScanToken) return;
+        if(b1d !== b1h){ bumpProgress(); continue; }
+
+        // 4H sengaja dicek TERAKHIR, dan bias-nya diambil dari fetch 150-candle yang memang dibutuhkan
+        // perhitungan skor di bawah — bukan lewat quickTrendBias() yang narik 90 candle sebagai request
+        // TERPISAH. Sebelumnya 4H pair yang sama ditarik dua kali dengan limit beda (90 buat gate, 150
+        // buat skor): dua kunci klineCache, dua request, buat data yang beririsan.
+        // closes.slice(-90) dari 150 candle itu array yang SAMA PERSIS dengan hasil fetch limit 90, dan
+        // ema() cold-start dari values[0] — input identik berarti hasil identik. Jadi bias 4H-nya nggak
+        // bergeser sedikit pun, cuma request-nya yang jadi satu.
         const candles = await fetchKlinesFull(item.symbol, '4h', 150);
         if(myToken !== modeScanToken) return;
-        if(candles.length < 50){ done++; continue; }
+        if(candles.length < 50){ bumpProgress(); continue; }
         const closes = candles.map(c=>c.close);
+        const b4h = computeEmaTrend(closes.slice(-90)).bias;
+        if(b4h !== b1h){ bumpProgress(); continue; }
+        const trendBias = b1h;
         const structure = analyzeMarketStructure(candles);
         const ema21arr = ema(closes,21), ema30arr = ema(closes,30), ema50arr = ema(closes,50);
         const rsiVal = rsi(closes,14);
@@ -2926,7 +2951,7 @@ async function runDeepScanTop20(){
         });
         const side = trendBias==='bullish' ? 'long' : 'short';
         const winPoints = side==='long' ? es.longPoints : es.shortPoints;
-        if(winPoints <= (side==='long'?es.shortPoints:es.longPoints)) { done++; continue; } // harus beneran menang di sisi tren, bukan cuma seri
+        if(winPoints <= (side==='long'?es.shortPoints:es.longPoints)) { bumpProgress(); continue; } // harus beneran menang di sisi tren, bukan cuma seri
 
         // ===== SATU-SATUNYA SISTEM SKOR: AI Confluence Score (sama persis kayak Decision Engine) =====
         const dMini = { symbol:item.symbol, tf:'4h', lastPrice, ema21, ema30, avwap, fib, structure, volRatio, fundingRate,
@@ -2939,8 +2964,7 @@ async function runDeepScanTop20(){
           results.push({ symbol:item.symbol, bias:side, score:conf.finalScore, rr:entryPlan[side].rr });
         }
       }catch(e){ /* skip pair kalau fetch gagal */ }
-      done++;
-      statusEl.textContent = `Menyeleksi ${candidates.length} pair paling likuid (${SCAN_LABEL})… ${done}/${candidates.length}`;
+      bumpProgress();
     }
   }
   await Promise.all(Array.from({length:CONCURRENCY}, worker));
