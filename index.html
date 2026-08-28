@@ -4741,12 +4741,21 @@ async function pingBinance(){
   const t0 = performance.now();
   const el = document.getElementById('sidebarPingStatus');
   try{
-    const res = await fetch(FAPI + '/fapi/v1/time');
+    // FIX: dulu pakai fetch mentah, jadi ping ini tetap nembak Binance tiap 60 detik walaupun safeFetch
+    // lagi cooldown gara-gara kena 429/418 — justru nambah panjang cooldown yang lagi coba diredam.
+    // Sekarang ikut antre lewat safeFetch seperti semua panggilan Binance lain (lihat CLAUDE.md).
+    const res = await safeFetch(FAPI + '/fapi/v1/time');
     await res.json();
     const ms = Math.round(performance.now()-t0);
     if(el){ el.style.color = 'var(--mint)'; el.textContent = `All Systems Operational · ${ms}ms`; }
   }catch(err){
-    if(el){ el.style.color = 'var(--amber)'; el.textContent = `Koneksi Bermasalah`; }
+    // Lagi jeda rate limit itu BUKAN koneksi bermasalah — app sengaja nahan diri. Dibedakan biar
+    // statusnya nggak bohong pas sebenarnya jaringannya baik-baik saja.
+    const cooling = String((err && err.message) || '').startsWith('RATE_LIMIT');
+    if(el){
+      el.style.color = 'var(--amber)';
+      el.textContent = cooling ? 'Jeda otomatis rate limit Binance' : 'Koneksi Bermasalah';
+    }
   }
 }
 
