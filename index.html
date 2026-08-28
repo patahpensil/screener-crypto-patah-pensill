@@ -3499,7 +3499,13 @@ async function checkWatchlistAlerts(){
       try{
         const closes1h = await fetchKlines(symbol, "1h", 60);
         const rsi1h = rsi(closes1h, 14);
-        if(rsi1h <= settings.rsiOs){
+        // Pair yang baru listing bisa punya candle 1H kurang dari 15, dan rsi() balikin NaN. NaN bikin
+        // KEDUA perbandingan di bawah false, jadi alurnya jatuh ke cabang else yang MENGHAPUS dedupe key —
+        // seolah kondisi ekstremnya sudah reda, padahal yang benar adalah "belum bisa dinilai". Efeknya
+        // baru terasa nanti: begitu candle-nya cukup dan RSI-nya memang ekstrem, alertnya tetap bunyi,
+        // tapi state dedupe sempat di-reset berulang kali tanpa dasar.
+        if(isNaN(rsi1h)){ /* histori 1H belum cukup — jangan simpulkan apa pun, jangan sentuh dedupe key */ }
+        else if(rsi1h <= settings.rsiOs){
           const key = `${symbol}|rsi_os`;
           if(!alertFiredThisSession.has(key)){ alertFiredThisSession.add(key); pushAlert(`RSI(14) 1H oversold: ${rsi1h.toFixed(1)}`, symbol); }
         } else if(rsi1h >= settings.rsiOb){
