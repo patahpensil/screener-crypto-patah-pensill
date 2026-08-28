@@ -2391,20 +2391,30 @@ function coinRowHtml(d, wl, badgeHtmlStr){
     </div>`;
 }
 
+// Batas baris yang di-render sekaligus. Sengaja dibatasi biar HP nggak berat pas 400+ pair ke-render
+// bareng — tapi angkanya harus JUJUR muncul di UI, lihat renderTable() di bawah.
+const ROW_RENDER_LIMIT = 150;
+
 function renderTable(){
   const list = getFiltered();
   const wl = new Set(loadWatchlist());
 
   const titleMap = { all:"Semua Pair", watchlist:"Watchlist", gainers:"Top Gainers", losers:"Top Losers",
     volume:"Volume Tertinggi", nearhigh:"Dekat 24H High", nearlow:"Dekat 24H Low", fundingext:"Funding Ekstrem", custom:"Semua Pair" };
+  const shown = Math.min(list.length, ROW_RENDER_LIMIT);
+  const truncated = shown < list.length;
   const titleEl = document.getElementById('listTitle');
-  if(titleEl) titleEl.textContent = `${titleMap[currentFilter] || "Semua Pair"} · ${list.length}`;
+  // FIX: judul dulu selalu nampilin TOTAL hasil filter (mis. "Semua Pair · 421") padahal cuma 150 baris
+  // pertama yang beneran di-render — jadi kelihatan kayak ada 400+ baris yang bisa discroll, padahal
+  // sisanya nggak ada. Sekarang jujur: "150 dari 421" pas kepotong.
+  if(titleEl) titleEl.textContent = `${titleMap[currentFilter] || "Semua Pair"} · ${truncated ? `${shown} dari ${list.length}` : list.length}`;
 
   if(list.length === 0){
     tbody.innerHTML = `<div class="empty-state">Tidak ada pair yang cocok dengan filter/pencarian ini.</div>`;
     return;
   }
-  tbody.innerHTML = list.slice(0,150).map(d => coinRowHtml(d, wl, '')).join('');
+  tbody.innerHTML = list.slice(0, ROW_RENDER_LIMIT).map(d => coinRowHtml(d, wl, '')).join('')
+    + (truncated ? `<div class="empty-state">Menampilkan ${shown} pair teratas dari ${list.length} yang cocok. Pakai kolom cari atau filter di atas buat mempersempit hasil.</div>` : '');
   observeVisibleRows();
 }
 
