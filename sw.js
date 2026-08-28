@@ -1,4 +1,4 @@
-const CACHE_NAME = "pp-screener-v69";
+const CACHE_NAME = "pp-screener-v70";
 const SHELL_FILES = [
   "./index.html",
   "./manifest.json",

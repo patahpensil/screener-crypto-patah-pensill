@@ -3937,6 +3937,11 @@ document.getElementById('historyPanelClose').addEventListener('click', ()=>{
 let currentDetailSymbol = null;
 let currentDetailTf = "4h";
 let lastDetailFull = null; // data lengkap hasil renderDetail() terakhir, dipakai tombol Copy AI
+// Dinaikkan tiap permintaan detail baru (ganti pair ATAU ganti timeframe). Pola yang sama persis dengan
+// modeScanToken/markovScanToken — loadDetail() sebelumnya nggak punya penjagaan ini, padahal dia nunggu
+// 5 request sekaligus (termasuk computeConfluence yang narik 4 timeframe x 250 candle), jadi jendela
+// balapannya lebar. Tanpa token, respons pair LAMA yang datang belakangan nimpa layar pair BARU.
+let detailRequestToken = 0;
 
 function sma(values, period){
   const out = [];
@@ -4130,6 +4135,7 @@ async function computeConfluence(symbol){
 }
 
 async function loadDetail(symbol, tf){
+  const myToken = ++detailRequestToken;
   document.getElementById('modalBody').innerHTML = `<div class="modal-loading"><span class="loader"></span>Memuat indikator ${tf.toUpperCase()}…</div>`;
   try{
     const [candles, oiHist, lsRatio, topRatio, confluence] = await Promise.all([
@@ -4139,6 +4145,9 @@ async function loadDetail(symbol, tf){
       fetchTopTraderRatio(symbol, "1h", 24).catch(()=>null),
       computeConfluence(symbol).catch(()=>null),
     ]);
+    // Permintaan yang lebih baru sudah jalan (pengguna keburu tap pair/timeframe lain) — hasil ini basi.
+    // Berhenti diam-diam, jangan tulis apa pun ke layar.
+    if(myToken !== detailRequestToken) return;
     const closes = candles.map(c=>c.close);
 
     // Pair yang baru listing bisa punya candle jauh lebih sedikit dari yang diminta. Indikator rekursif
@@ -4206,6 +4215,9 @@ async function loadDetail(symbol, tf){
     renderDetail({symbol, tf, lastPrice, ema21, ema30, ema50, ma200, avwap, rsiVal, fib, macdVal, stoch, atrVal, bb:bbVal, adxVal, structure, divergence, volRatio, priceUp, oi, oiChangePct, oiTrend, lsLatest, topLatest, fundingRate, confluence, candles});
   }catch(err){
     console.error(err);
+    // Kegagalan dari permintaan basi juga nggak boleh nimpa layar yang sekarang — pair lama yang gagal
+    // jangan sampai nutupi pair baru yang lagi dimuat atau sudah tampil.
+    if(myToken !== detailRequestToken) return;
     const errHtml = `
       <div class="modal-loading">⚠️ Gagal memuat indikator — koneksi bermasalah, domain Binance diblokir jaringan, atau Binance lagi lambat.</div>
       <div style="padding:0 16px 20px; display:flex; gap:8px;">
