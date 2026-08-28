@@ -3262,10 +3262,19 @@ async function runMarkovScreening(){
   statusEl.textContent = `Membangun state sequence & transition matrix ${candidates.length} pair paling likuid… 0/${candidates.length}`;
 
   // Regime pasar: proxy dari state BTCUSDT sendiri di timeframe 4H
+  // FIX: baris ini dulu manggil mkComputeFeatures() yang NGGAK PERNAH didefinisikan di file ini (sisa port
+  // dari modul asli — yang ada cuma mkComputeFeaturesAt, signature-nya beda total). ReferenceError-nya
+  // ketelen catch di bawah, jadi Regime Pasar diam-diam nggak pernah kebaca sejak fitur ini ada: labelnya
+  // selalu "belum tersedia" dan semua regimeNote di hasil selalu "Netral terhadap regime pasar".
+  // Sekarang pakai mkBuildStateSequence — jalur perhitungan state yang SAMA PERSIS dipakai tiap pair —
+  // lalu ambil state terakhirnya, biar nggak ada 2 definisi state yang bisa beda hasil.
+  // Limit candle disamakan dengan scan pair (MK_WINDOW + 130) supaya EMA50/RSI dapat warm-up yang sama,
+  // sekalian nyangkut di entry cache yang sama pas BTCUSDT ikut discan sebagai kandidat (nol request ekstra).
   try{
-    const btcCandles = await fetchKlinesFull('BTCUSDT', '4h', MK_WINDOW + 5);
+    const btcCandles = await fetchKlinesFull('BTCUSDT', '4h', MK_WINDOW + 130);
     if(myToken === markovScanToken && btcCandles.length >= MK_WINDOW + 2){
-      markovRegimeState = mkClassifyState(mkComputeFeatures(btcCandles.slice(-(MK_WINDOW+1)), MK_WINDOW));
+      const btcSequence = mkBuildStateSequence(btcCandles, MK_WINDOW);
+      if(btcSequence.length) markovRegimeState = btcSequence[btcSequence.length-1];
     }
   }catch(e){ /* regime tetap null kalau gagal, nggak fatal buat scan pair */ }
   if(myToken !== markovScanToken) return;
