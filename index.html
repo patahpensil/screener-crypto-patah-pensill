@@ -4686,7 +4686,14 @@ function renderDetail(d){
     const votes = [];
     // 1. Market Structure AI
     if(d.structure && d.structure.bias && winSide){
-      votes.push({name:'Market Structure AI', v: d.structure.bias===winSide ? 'approve' : (d.structure.bias==='neutral'?'neutral':'reject')});
+      // FIX: sama akarnya dengan Multi Timeframe — dulu membandingkan 'bullish'/'bearish' langsung dengan
+      // 'long'/'short', jadi 'approve' MUSTAHIL dan hasilnya selalu jatuh ke 'reject' begitu struktur
+      // punya arah, termasuk saat strukturnya SEARAH trade. Akibatnya berantai: Macro AI juga cuma bisa
+      // neutral/reject, jadi maksimum approve cuma 3 dari 5 sementara syaratnya >= 4 — kartu "TRADE
+      // APPROVAL COMMITTEE" nggak akan pernah bisa menampilkan APPROVED, seideal apa pun setupnya.
+      // Struktur 'transition' sekarang jadi neutral, bukan reject: lagi transisi itu belum melawan.
+      const structVote = biasToSide(d.structure.bias);
+      votes.push({name:'Market Structure AI', v: structVote===winSide ? 'approve' : (structVote===null ? 'neutral' : 'reject')});
     } else votes.push({name:'Market Structure AI', v:'neutral'});
     // 2. Orderflow AI (funding + OI + long/short ratio)
     let ofSignals = 0, ofTotal = 0;
