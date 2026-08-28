@@ -3932,9 +3932,18 @@ function computeFibonacci(candles, lookback){
   });
   const direction = iMax > iMin ? "up" : "down"; // low terjadi duluan = leg naik
   const ratios = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+  // Retracement SELALU diukur dari UJUNG leg balik ke PANGKALNYA, jadi arah leg yang nentuin titik 0%:
+  //   leg naik  (low duluan lalu high) -> 0% = maxHigh (ujung), 100% = minLow  (pangkal)
+  //   leg turun (high duluan lalu low) -> 0% = minLow  (ujung), 100% = maxHigh (pangkal)
+  // FIX: sebelumnya `direction` cuma dipakai buat label, rumusnya SELALU versi leg naik — akibatnya di
+  // leg turun semua level kebalik (yang dilabeli 61.8% sebenarnya harga di 38.2%). Efeknya nyebar ke
+  // Fibonacci Golden Pocket (computeEntryScore), level Entry/SL/TP (computeEntryPlan), alert "harga
+  // mendekati level" (computeStructLevels), computeKeyZones, sampai kategori Market Structure (bobot 17)
+  // di AI Confluence Score.
+  const range = maxHigh - minLow;
   const levels = ratios.map(r => ({
     ratio:r,
-    price: maxHigh - (maxHigh - minLow) * r
+    price: direction === "up" ? maxHigh - range*r : minLow + range*r
   }));
   return { levels, maxHigh, minLow, direction };
 }
@@ -4908,7 +4917,10 @@ function computeEntryScore(ctx){
   }
 
   if(ctx.fib){
-    const zoneHigh = ctx.fib.levels[3].price, zoneLow = ctx.fib.levels[4].price; // 50% & 61.8%
+    // Urutan HARGA levels[3] (50%) vs levels[4] (61.8%) kebalik antara leg naik & leg turun, jadi batas
+    // zona diambil pakai min/max — jangan diasumsikan 50% selalu ada di atas 61.8%.
+    const p50 = ctx.fib.levels[3].price, p618 = ctx.fib.levels[4].price;
+    const zoneHigh = Math.max(p50, p618), zoneLow = Math.min(p50, p618);
     const inZone = ctx.lastPrice <= zoneHigh && ctx.lastPrice >= zoneLow;
     let side = null;
     if(inZone) side = ctx.fib.direction==='up' ? 'long' : 'short';
